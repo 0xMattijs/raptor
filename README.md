@@ -12,7 +12,7 @@
 ║             Based on Claude Code - v1.0-alpha                             ║
 ║                                                                           ║ 
 ║             By Gadi Evron, Daniel Cuthbert                                ║
-║                and Thomas Dullien (Halvar Flake)                          ║ 
+║                and Thomas Dullien (Halvar Flake) & Michael Bargury        ║ 
 ║                                                                           - 
 ╚═══════════════════════════════════════════════════════════════════════════╝ 
                               __                                              
@@ -63,7 +63,7 @@ and extensible.
 ---
 
 ## What's unique about RAPTOR?
-Beyond RAPTOR's potential for autonomous security research and community collaboration, it demonstrates how**Claude Code can be adapted for any purpose**, with RAPTOR packages.
+Beyond RAPTOR's potential for autonomous security research and community collaboration, it demonstrates how Claude Code can be adapted for any purpose**, with RAPTOR packages.
 
 ---
 

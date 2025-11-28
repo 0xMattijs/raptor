@@ -906,6 +906,141 @@ def create_event_from_gharchive(row: dict[str, Any]) -> AnyEvent:
 
 
 # =============================================================================
+# OBSERVATION CREATION FUNCTIONS - From GH Archive (deleted content recovery)
+# =============================================================================
+
+
+def create_issue_observation_from_gharchive(row: dict[str, Any]) -> IssueObservation:
+    """Create IssueObservation from GH Archive IssuesEvent.
+
+    Recovers deleted issue content - title and body are preserved in archive
+    even after issue is deleted from GitHub.
+    """
+    payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+    owner, name = row["repo_name"].split("/", 1)
+    issue = payload.get("issue", {})
+
+    state = issue.get("state", "open")
+
+    return IssueObservation(
+        evidence_id=_generate_evidence_id("issue-gharchive", row["repo_name"], str(issue.get("number", 0))),
+        original_when=_parse_datetime(issue.get("created_at")),
+        original_who=_make_github_actor(issue.get("user", {}).get("login", row["actor_login"])),
+        original_what=f"Issue #{issue.get('number')} created",
+        observed_when=_parse_datetime(row["created_at"]),
+        observed_by=EvidenceSource.GHARCHIVE,
+        observed_what=f"Issue #{issue.get('number')} recovered from GH Archive",
+        repository=_make_github_repo(owner, name, row.get("repo_id")),
+        verification=VerificationInfo(
+            source=EvidenceSource.GHARCHIVE,
+            bigquery_table="githubarchive.day.*",
+            query=f"repo.name='{row['repo_name']}' AND type='IssuesEvent'",
+        ),
+        issue_number=issue.get("number", 0),
+        is_pull_request=False,
+        title=issue.get("title"),
+        body=issue.get("body"),
+        state=state,
+        is_deleted=True,  # Assumed deleted since we're recovering from archive
+    )
+
+
+def create_pr_observation_from_gharchive(row: dict[str, Any]) -> IssueObservation:
+    """Create IssueObservation (PR) from GH Archive PullRequestEvent.
+
+    Recovers deleted PR content - title and body are preserved in archive
+    even after PR is deleted from GitHub.
+    """
+    payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+    owner, name = row["repo_name"].split("/", 1)
+    pr = payload.get("pull_request", {})
+
+    state = pr.get("state", "open")
+    if pr.get("merged"):
+        state = "merged"
+
+    return IssueObservation(
+        evidence_id=_generate_evidence_id("pr-gharchive", row["repo_name"], str(pr.get("number", 0))),
+        original_when=_parse_datetime(pr.get("created_at")),
+        original_who=_make_github_actor(pr.get("user", {}).get("login", row["actor_login"])),
+        original_what=f"PR #{pr.get('number')} created",
+        observed_when=_parse_datetime(row["created_at"]),
+        observed_by=EvidenceSource.GHARCHIVE,
+        observed_what=f"PR #{pr.get('number')} recovered from GH Archive",
+        repository=_make_github_repo(owner, name, row.get("repo_id")),
+        verification=VerificationInfo(
+            source=EvidenceSource.GHARCHIVE,
+            bigquery_table="githubarchive.day.*",
+            query=f"repo.name='{row['repo_name']}' AND type='PullRequestEvent'",
+        ),
+        issue_number=pr.get("number", 0),
+        is_pull_request=True,
+        title=pr.get("title"),
+        body=pr.get("body"),
+        state=state,
+        is_deleted=True,  # Assumed deleted since we're recovering from archive
+    )
+
+
+def create_commit_observation_from_gharchive(
+    row: dict[str, Any],
+    commit_index: int = 0,
+) -> CommitObservation:
+    """Create CommitObservation from GH Archive PushEvent.
+
+    Recovers commit metadata from archive - useful for deleted repos
+    or force-pushed commits. Note: only metadata, not full diff.
+    """
+    payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+    owner, name = row["repo_name"].split("/", 1)
+    commits = payload.get("commits", [])
+
+    if not commits or commit_index >= len(commits):
+        raise ValueError(f"No commit at index {commit_index} in PushEvent")
+
+    commit = commits[commit_index]
+
+    return CommitObservation(
+        evidence_id=_generate_evidence_id("commit-gharchive", row["repo_name"], commit["sha"]),
+        original_when=_parse_datetime(row["created_at"]),
+        original_who=GitHubActor(login=commit.get("author", {}).get("name", "")),
+        original_what=commit.get("message", "").split("\n")[0],
+        observed_when=_parse_datetime(row["created_at"]),
+        observed_by=EvidenceSource.GHARCHIVE,
+        observed_what=f"Commit {commit['sha'][:8]} recovered from GH Archive",
+        repository=_make_github_repo(owner, name, row.get("repo_id")),
+        verification=VerificationInfo(
+            source=EvidenceSource.GHARCHIVE,
+            bigquery_table="githubarchive.day.*",
+            query=f"repo.name='{row['repo_name']}' AND type='PushEvent'",
+        ),
+        sha=commit["sha"],
+        message=commit.get("message", ""),
+        author=CommitAuthor(
+            name=commit.get("author", {}).get("name", ""),
+            email=commit.get("author", {}).get("email", ""),
+            date=_parse_datetime(row["created_at"]),
+        ),
+        committer=CommitAuthor(
+            name=commit.get("author", {}).get("name", ""),
+            email=commit.get("author", {}).get("email", ""),
+            date=_parse_datetime(row["created_at"]),
+        ),
+        parents=[],
+        files=[],
+        is_dangling=True,  # Recovered from archive, may not be on any branch
+    )
+
+
+def create_all_commit_observations_from_gharchive(row: dict[str, Any]) -> list[CommitObservation]:
+    """Create CommitObservations for all commits in a PushEvent."""
+    payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else row["payload"]
+    commits = payload.get("commits", [])
+
+    return [create_commit_observation_from_gharchive(row, i) for i in range(len(commits))]
+
+
+# =============================================================================
 # OBSERVATION CREATION FUNCTIONS - From GitHub/Wayback
 # =============================================================================
 

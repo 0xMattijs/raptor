@@ -42,7 +42,12 @@ from .creation import (
     create_member_event_from_gharchive,
     create_public_event_from_gharchive,
     create_event_from_gharchive,
-    # Observation Creators
+    # Observation Creators - From GH Archive (deleted content recovery)
+    create_issue_observation_from_gharchive,
+    create_pr_observation_from_gharchive,
+    create_commit_observation_from_gharchive,
+    create_all_commit_observations_from_gharchive,
+    # Observation Creators - From GitHub/Wayback
     create_commit_observation,
     create_commit_observation_from_git,
     create_issue_observation,
@@ -182,7 +187,12 @@ __all__ = [
     "create_member_event_from_gharchive",
     "create_public_event_from_gharchive",
     "create_event_from_gharchive",
-    # Creation - Observation Creators
+    # Creation - Observation Creators (GH Archive - deleted content recovery)
+    "create_issue_observation_from_gharchive",
+    "create_pr_observation_from_gharchive",
+    "create_commit_observation_from_gharchive",
+    "create_all_commit_observations_from_gharchive",
+    # Creation - Observation Creators (GitHub/Wayback)
     "create_commit_observation",
     "create_commit_observation_from_git",
     "create_issue_observation",

@@ -4,7 +4,7 @@
 # This container provides all dependencies for the RAPTOR security research framework.
 # Based on comprehensive audit of all agents, commands, skills, and packages.
 
-FROM mcr.microsoft.com/devcontainers/python:1-3.12-bullseye
+FROM mcr.microsoft.com/devcontainers/python:1-3.12-bookworm
 
 # ============================================================================
 # SYSTEM DEPENDENCIES

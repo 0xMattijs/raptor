@@ -94,6 +94,42 @@ Try /analyze on one of our tests /tests/data
 
 **See:** `docs/CLAUDE_CODE_USAGE.md` for complete guide
 
+## DevContainer and Dockerfile for easy onboarding
+
+Pre-installed security tools:
+
+*     Semgrep (static analysis)
+*     CodeQL CLI v2.15.5 (semantic code analysis)
+*     AFL++ (fuzzing)
+*     rr debugger (deterministic record-replay debugging)
+
+Build & debugging tools:
+
+*     gcc, g++, clang-format, make, cmake, autotools
+*     gdb, gdb-multiarch, binutils
+
+Web testing:
+
+*     Playwright browser automation (Chromium, Firefox, Webkit browsers)
+
+
+Runtime notes:
+
+*     Runs with --privileged flag required for rr debugger
+*     PYTHONPATH configured for /workspaces/raptor imports
+*     All Playwright browsers pre-downloaded
+
+### Usage
+
+Open in VS Code or any of its forks with Dev Container: Open Folder in Container command.
+
+Or build it with docker:
+
+```
+docker build -f .devcontainer/Dockerfile -t raptor-devcontainer:latest .
+```
+
+
 ---
 
 ## Available Commands

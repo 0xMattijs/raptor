@@ -655,6 +655,97 @@ class TestCancelInstallation:
 
         assert result is False
 
+    @patch("packages.binary_analysis.crash_analyser.is_radare2_available")
+    @patch.dict(os.environ, {}, clear=True)
+    def test_cancel_install_multiple_calls_is_idempotent(self, mock_r2_available, test_binary):
+        """Test that multiple cancel calls are safe and idempotent."""
+        mock_r2_available.return_value = False
+
+        with patch.object(CrashAnalyser, "_check_tool_availability") as mock_check:
+            mock_check.return_value = {"radare2": False, "objdump": True}
+
+            with patch("threading.Thread") as mock_thread:
+                mock_thread_instance = Mock()
+                mock_thread_instance.is_alive.return_value = True
+                mock_thread.return_value = mock_thread_instance
+
+                analyser = CrashAnalyser(test_binary, use_radare2=True)
+
+                # Call cancel multiple times
+                result1 = analyser.cancel_install()
+                result2 = analyser.cancel_install()
+                result3 = analyser.cancel_install()
+
+                # All should succeed
+                assert result1 is True
+                assert result2 is True
+                assert result3 is True
+
+                # Flag should be set (not causing issues from multiple sets)
+                assert analyser._install_cancelled is True
+
+    @patch("packages.binary_analysis.crash_analyser.is_radare2_available")
+    def test_cancel_install_after_failure_returns_false(self, mock_r2_available, test_binary):
+        """Test that cancelling after failure correctly returns False."""
+        mock_r2_available.return_value = True
+
+        analyser = CrashAnalyser(test_binary, use_radare2=False)
+
+        # Simulate failed installation
+        analyser._install_in_progress = False
+        analyser._install_success = False
+        analyser._install_error = "Package not found"
+
+        # Try to cancel after failure
+        result = analyser.cancel_install()
+
+        assert result is False
+        assert analyser._install_cancelled is False  # Should not set flag
+
+
+class TestInstallationStatusEdgeCases:
+    """Test edge cases for get_install_status() API."""
+
+    @pytest.fixture
+    def test_binary(self, tmp_path):
+        """Create a minimal test binary."""
+        binary = tmp_path / "test_binary"
+        binary.write_bytes(b"\x7fELF" + b"\x00" * 100)
+        return binary
+
+    @patch("packages.binary_analysis.crash_analyser.is_radare2_available")
+    @patch("time.time")
+    def test_get_install_status_duration_increases_during_installation(
+        self, mock_time, mock_r2_available, test_binary
+    ):
+        """Test that duration increases with each status call during installation."""
+        mock_r2_available.return_value = True
+
+        analyser = CrashAnalyser(test_binary, use_radare2=False)
+
+        # Simulate installation in progress
+        analyser._install_timestamp = 1000.0
+        analyser._install_in_progress = True
+        analyser._install_success = None
+
+        # First call at T+10s
+        mock_time.return_value = 1010.0
+        status1 = analyser.get_install_status()
+
+        # Second call at T+25s
+        mock_time.return_value = 1025.0
+        status2 = analyser.get_install_status()
+
+        # Verify duration increases
+        assert status1["in_progress"] is True
+        assert status1["duration"] == 10.0
+
+        assert status2["in_progress"] is True
+        assert status2["duration"] == 25.0
+
+        assert status2["duration"] > status1["duration"]
+        assert status2["duration"] - status1["duration"] == pytest.approx(15.0)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

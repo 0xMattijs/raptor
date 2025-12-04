@@ -190,7 +190,9 @@ if not status["in_progress"]:
     print("No installation running to cancel")
 ```
 
-2. Cancellation only works during background installation. Foreground installation is blocking and cannot be cancelled.
+2. Cancellation only works during **background installation**:
+   - **Background installation** (can cancel): When objdump is available as fallback, installation runs in a separate thread
+   - **Foreground installation** (cannot cancel): When no fallback tool available, installation blocks synchronously (no thread to cancel)
 
 3. The installation thread may have already completed between checking status and calling cancel.
 

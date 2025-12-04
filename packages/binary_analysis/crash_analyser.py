@@ -11,6 +11,7 @@ import os
 import hashlib
 import shutil
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,16 @@ from packages.binary_analysis.radare2_wrapper import Radare2Wrapper, format_disa
 from core.sarif.crash_converter import crash_context_to_sarif, save_crashes_as_sarif
 
 logger = get_logger()
+
+
+# Installation error messages (constants to avoid duplication)
+class InstallError:
+    """Error messages for radare2 installation."""
+    CANCELLED = "Cancelled by user"
+    NO_BREW = "Homebrew not found on macOS"
+    NO_PACKAGE_MANAGER = "No supported package manager found"
+    COMMAND_FAILED = "Installation command failed"
+    PLATFORM_UNSUPPORTED = "Platform {platform} not supported"
 
 
 @dataclass
@@ -94,6 +105,7 @@ class CrashAnalyser:
 
         # Initialize radare2 wrapper if available and requested
         self.radare2 = None
+        self._install_lock = threading.Lock()  # Protects installation state access
         self._install_in_progress = False
         self._install_success = None      # None=not started, True=success, False=failed
         self._install_error = None        # Error message if failed
@@ -270,8 +282,6 @@ class CrashAnalyser:
         Runs in background if objdump is available, otherwise foreground.
         Shows clear progress messages throughout.
         """
-        import threading
-
         def install():
             try:
                 system = platform.system().lower()
@@ -281,7 +291,7 @@ class CrashAnalyser:
                 if self._install_cancelled:
                     logger.info("Installation cancelled before execution")
                     self._install_success = False
-                    self._install_error = "Cancelled by user"
+                    self._install_error = InstallError.CANCELLED
                     self._install_in_progress = False
                     if self._install_timestamp:
                         self._install_duration = time.time() - self._install_timestamp
@@ -292,7 +302,7 @@ class CrashAnalyser:
                     if shutil.which("brew"):
                         if self._install_cancelled:
                             self._install_success = False
-                            self._install_error = "Cancelled by user"
+                            self._install_error = InstallError.CANCELLED
                             self._install_in_progress = False
                             if self._install_timestamp:
                                 self._install_duration = time.time() - self._install_timestamp
@@ -301,14 +311,14 @@ class CrashAnalyser:
                     else:
                         logger.error("Homebrew not found on macOS")
                         logger.info("Install Homebrew: https://brew.sh")
-                        self._install_error = "Homebrew not found on macOS"
+                        self._install_error = InstallError.NO_BREW
 
                 elif system == "linux":
                     # Linux - detect package manager
                     if shutil.which("apt"):
                         if self._install_cancelled:
                             self._install_success = False
-                            self._install_error = "Cancelled by user"
+                            self._install_error = InstallError.CANCELLED
                             self._install_in_progress = False
                             if self._install_timestamp:
                                 self._install_duration = time.time() - self._install_timestamp
@@ -317,7 +327,7 @@ class CrashAnalyser:
                     elif shutil.which("dnf"):
                         if self._install_cancelled:
                             self._install_success = False
-                            self._install_error = "Cancelled by user"
+                            self._install_error = InstallError.CANCELLED
                             self._install_in_progress = False
                             if self._install_timestamp:
                                 self._install_duration = time.time() - self._install_timestamp
@@ -326,7 +336,7 @@ class CrashAnalyser:
                     elif shutil.which("pacman"):
                         if self._install_cancelled:
                             self._install_success = False
-                            self._install_error = "Cancelled by user"
+                            self._install_error = InstallError.CANCELLED
                             self._install_in_progress = False
                             if self._install_timestamp:
                                 self._install_duration = time.time() - self._install_timestamp
@@ -335,12 +345,12 @@ class CrashAnalyser:
                     else:
                         logger.error("No supported package manager found (apt, dnf, pacman)")
                         logger.info("Manual installation: https://github.com/radareorg/radare2")
-                        self._install_error = "No supported package manager found"
+                        self._install_error = InstallError.NO_PACKAGE_MANAGER
 
                 else:
                     logger.error(f"Automatic installation not supported on {system}")
                     logger.info("Manual installation: https://github.com/radareorg/radare2")
-                    self._install_error = f"Platform {system} not supported"
+                    self._install_error = InstallError.PLATFORM_UNSUPPORTED.format(platform=system)
 
                 # Track result
                 if not self._install_cancelled:
@@ -350,11 +360,11 @@ class CrashAnalyser:
                     else:
                         self._install_success = False
                         if not self._install_error:
-                            self._install_error = "Installation command failed"
+                            self._install_error = InstallError.COMMAND_FAILED
                 else:
                     self._install_success = False
                     if not self._install_error:
-                        self._install_error = "Cancelled by user"
+                        self._install_error = InstallError.CANCELLED
 
                 self._install_in_progress = False
                 if self._install_timestamp:
@@ -431,26 +441,27 @@ class CrashAnalyser:
                 - timestamp (float|None): When installation started (Unix timestamp)
                 - duration (float|None): How long installation took/is taking (seconds)
         """
-        status = {
-            "in_progress": self._install_in_progress,
-            "success": self._install_success,
-            "error": self._install_error,
-            "timestamp": self._install_timestamp,
-            "duration": None
-        }
+        with self._install_lock:
+            status = {
+                "in_progress": self._install_in_progress,
+                "success": self._install_success,
+                "error": self._install_error,
+                "timestamp": self._install_timestamp,
+                "duration": None
+            }
 
-        if self._install_timestamp:
-            if self._install_in_progress:
-                # Still running - calculate current duration
-                status["duration"] = time.time() - self._install_timestamp
-            elif self._install_duration is not None:
-                # Completed - use tracked duration
-                status["duration"] = self._install_duration
-            else:
-                # Started but no duration tracked (shouldn't happen, but safe fallback)
-                status["duration"] = time.time() - self._install_timestamp
+            if self._install_timestamp:
+                if self._install_in_progress:
+                    # Still running - calculate current duration
+                    status["duration"] = time.time() - self._install_timestamp
+                elif self._install_duration is not None:
+                    # Completed - use tracked duration
+                    status["duration"] = self._install_duration
+                else:
+                    # Started but no duration tracked (shouldn't happen, but safe fallback)
+                    status["duration"] = time.time() - self._install_timestamp
 
-        return status
+            return status
 
     def cancel_install(self) -> bool:
         """
@@ -459,18 +470,19 @@ class CrashAnalyser:
         Returns:
             True if cancellation was initiated, False if nothing to cancel
         """
-        if not self._install_in_progress:
-            logger.debug("No installation in progress to cancel")
+        with self._install_lock:
+            if not self._install_in_progress:
+                logger.debug("No installation in progress to cancel")
+                return False
+
+            if self._install_thread and self._install_thread.is_alive():
+                logger.info("Cancelling radare2 installation")
+                self._install_cancelled = True
+                # Thread will check flag and exit gracefully
+                return True
+
+            logger.debug("Installation thread not running")
             return False
-
-        if self._install_thread and self._install_thread.is_alive():
-            logger.info("Cancelling radare2 installation")
-            self._install_cancelled = True
-            # Thread will check flag and exit gracefully
-            return True
-
-        logger.debug("Installation thread not running")
-        return False
 
     def _check_tool_availability(self) -> Dict[str, bool]:
         """Check which reverse engineering tools are available on the system. There are many more but this is a start."""
